@@ -4,7 +4,7 @@ compiler.erl is an Erlang module that compiles Magdir folder and detects the mim
 The new module "magic_db" has the compiled version of Magdir files. 
 To compile the Magdir files, compile() function has to be called.
 
-* Detection part of this module uses the file "magic_db.erl". Hence, it will not run unless the compiling is successful.
+* Detection part of this module uses the file "magic_db.erl". Hence, it will not run unless the compiling of magic database is successful.
 To run detection part, getMimeType("filename") function has to be called.
 
 * To test the 'compiler' module's getMimeType() function, testModule("testfolder") function can be used. This function returns difference between module's result and libmagic's result.
