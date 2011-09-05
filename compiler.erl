@@ -1,3 +1,14 @@
+%---------------------------------------------------------------------
+% FILE:              compiler.erl
+% DESCRIPTION:       Magic Database Compiler - Mime Type Detector
+% DATE:              05/09/2011
+% LANGUAGE PLATFORM: Erlang 5.7.4
+% OS PLATFORM:       Ubuntu 2.6.35-28
+% AUTHOR:            Murat Aydos  &  Mustafa Yavuz  &  Ersan V. Zorlu
+% EMAIL:             aydosmurat@gmail.com  &  89.Yavuz@gmail.com  & ersanvuralzorlu@gmail.com
+%---------------------------------------------------------------------
+
+
 %---------------------------------------------------------------------------------------------------------------
 % Compiler Module
 % To be able to run getMimeType(FileName), you must run compile() function that creates the magic_db module.
