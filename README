@@ -9,7 +9,7 @@ To run detection part, getMimeType("filename") function has to be called.
 
 * To test the 'compiler' module's getMimeType() function, testModule("testfolder") function can be used. This function returns difference between module's result and libmagic's result.
 
-* Text files may return wrong mime-types. Determining the content of a text file is not successfully implemented. 
+* Text files may return wrong mime-types. Determining the content of a text file is not implemented successfully. 
 Ex: module returns text/x-c++ and libmagic returns test/x-c or text/plain.  
 
 ----------------------------------Not Handled Case-------------------------------------------------------------
