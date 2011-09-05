@@ -1,0 +1,18 @@
+compiler.erl is an Erlang module that compiles Magdir folder and detects the mime type of a given file.
+
+* First, user has to compile the Magdir folder. 'compiler' module will create another module named "magic_db".
+The new module "magic_db" has the compiled version of Magdir files. 
+To compile the Magdir files, compile() function has to be called.
+
+* Detection part of this module uses the file "magic_db.erl". Hence, it will not run unless the compiling is successful.
+To run detection part, getMimeType("filename") function has to be called.
+
+* To test the 'compiler' module's getMimeType() function, testModule("testfolder") function can be used. This function returns difference between module's result and libmagic's result.
+
+* Text files may return wrong mime-types. Determining the content of a text file is not successfully implemented. 
+Ex: module returns text/x-c++ and libmagic returns test/x-c or text/plain.  
+
+----------------------------------Not Handled Case-------------------------------------------------------------
+"indirect" type case is unhandled. ex: mp3 files' mime-type is determined by this indirect type
+'audio' file in Magdir : ">(6.I)  indirect	x	\b, contains:"
+---------------------------------------------------------------------------------------------------------------
