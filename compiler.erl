@@ -8,7 +8,6 @@
 % EMAIL:             aydosmurat@gmail.com  &  89.Yavuz@gmail.com  & ersanvuralzorlu@gmail.com
 %---------------------------------------------------------------------
 
-
 %---------------------------------------------------------------------------------------------------------------
 % Compiler Module
 % To be able to run getMimeType(FileName), you must run compile() function that creates the magic_db module.
@@ -65,6 +64,7 @@ getMimeType(FileName) ->
 		<<"Unknown Type">> ->
 			textType(FileName);
 		<<"application/x-dosexec">> -> "application/octet-stream";
+		<<"application/zip">> -> detectDocx(FileName);
 		MimeType ->
 			print(MimeType) 
 	end.
@@ -96,6 +96,7 @@ compileAndGetTypeHelper(FileName, FileList) ->
 		<<"Unknown Type">> ->
 			compileAndGetTypeHelper(FileName, tl(FileList));
 		<<"application/x-dosexec">> -> "application/octet-stream";
+		<<"application/zip">> -> detectDocx(FileName);
 		MimeType ->
 			print(MimeType) 
 	end.
@@ -206,7 +207,7 @@ compareTree(FileData, Tree, ParentAccepted) ->
 							end;
 						[Mime] -> Mime
 					end;	
-				<<"Microsoft Office Document">> -> <<"application/vnd.ms-office">>;
+				<<"Microsoft Office Document">> -> officeType(FileData);%<<"application/vnd.ms-office">>;
 				_Else ->
 					case mimeOfNode(Tree) of
 						[] -> 
@@ -336,6 +337,212 @@ parseMime(Binary) -> {err, Binary}.
 parseMime2(<<$\n, _/binary>>, Mime) -> {ok, Mime};
 parseMime2(<<>>, Mime) -> {ok, Mime};
 parseMime2(<<Char, T/binary>>, Mime) -> parseMime2(T, <<Mime/binary, Char>> ).
+
+%---------------------------------------------------------------------------------------------------------------
+% If the file mime-type is "application/zip",
+% this function is called to detect wheather the file is an office document.
+%---------------------------------------------------------------------------------------------------------------
+detectDocx(FileName) -> 
+	case zip:list_dir(FileName) of
+		{ok, ZipList} -> typeOfZip(tl(ZipList), []);
+		{error, _} -> "application/zip"
+	end.
+	
+
+typeOfZip([], CountList) -> 
+	X1 = lists:member(1, CountList),
+	X2 = lists:member(2, CountList),
+	X3 = lists:member(3, CountList),
+	if X1 and X2 and X3 ->
+		   X4 = lists:member(4, CountList),
+		   X5 = lists:member(5, CountList),
+		   X6 = lists:member(6, CountList),
+		   Y1 = tff(X4, X5, X6),
+		   if Y1 ->
+				  "application/msword";
+			  true ->
+				  Y2 = tff(X5, X4, X6),
+				  if Y2 ->
+						 "application/vnd.ms-excel";
+					 true ->
+						 Y3 = tff(X6, X4, X5),
+						 if Y3 ->
+								"application/vnd.ms-powerpoint";
+							true ->
+								"application/zip"
+						 end
+				  end
+		   end;
+		true -> "application/zip"
+	end;	
+typeOfZip(ZipList, CountList) ->
+	%erlang:display(ZipList),
+	{_, Head, _, _, _, _} = hd(ZipList),
+	case hd(string:tokens(Head, "/")) of
+		"[Content_Types].xml" -> typeOfZip(tl(ZipList), CountList ++ [1]);
+		"_rels" -> typeOfZip(tl(ZipList), CountList ++ [2]);
+		"docProps" -> typeOfZip(tl(ZipList), CountList ++ [3]);
+		"word" -> 
+			case isWordDocx(ZipList, []) of
+				{true, ZipTail} -> 	typeOfZip(ZipTail, CountList ++ [4]);
+				{false, ZipTail} -> typeOfZip(ZipTail, CountList)
+			end;
+		"xl" ->
+			case isExcelXlsx(ZipList, []) of
+				{true, ZipTail} -> typeOfZip(ZipTail, CountList ++ [5]);
+				{false, ZipTail} -> typeOfZip(ZipTail, CountList)
+			end;
+		"ppt" ->
+			case isPowerpointPptx(ZipList, []) of
+				{true, ZipTail} -> typeOfZip(ZipTail, CountList ++ [6]);
+				{false, ZipTail} -> typeOfZip(ZipTail, CountList)
+			end;
+		_Else -> typeOfZip(tl(ZipList), CountList)
+	end.
+
+isWordDocx(ZipList, CountList) ->
+	{_, Head, _, _, _, _} = hd(ZipList),
+	Folder = string:tokens(Head, "/"),
+	case hd(Folder) of
+		"word" -> 
+			if length(Folder) > 1 ->
+				case hd(tl(Folder)) of
+					"styles.xml" -> isWordDocx(tl(ZipList),CountList ++ [1]);
+					"document.xml" -> isWordDocx(tl(ZipList),CountList ++ [2]);
+					"fontTable.xml" -> isWordDocx(tl(ZipList),CountList ++ [3]);
+					_Else -> isWordDocx(tl(ZipList),  CountList)
+				end;
+			   true -> 
+				   {false, tl(ZipList)}
+			end;
+		_Else ->
+			{DocList, Rest} = scanRest("word", ZipList, [], []),
+			if length(DocList) > 0 ->
+				   isWordDocx(DocList ++ Rest,  CountList);
+			   true ->
+					X1 = lists:member(1, CountList),
+					X2 = lists:member(2, CountList),
+					X3 = lists:member(3, CountList),
+					if X1 and X2 and X3 ->
+						   {true, ZipList};
+					   true ->
+						   {false, ZipList}
+					end
+			end
+	end.
+
+isExcelXlsx(ZipList, CountList) ->
+	{_, Head, _, _, _, _} = hd(ZipList),
+	Folder = string:tokens(Head, "/"),
+	case hd(Folder) of
+		"xl" -> 
+			if length(Folder) > 1 ->
+				case hd(tl(Folder)) of
+					"_rels" -> isExcelXlsx(tl(ZipList), CountList ++ [1]);
+					"printerSettings" -> isExcelXlsx(tl(ZipList), CountList ++ [2]);
+					"theme" -> isExcelXlsx(tl(ZipList), CountList ++ [3]);
+					"worksheets" -> isExcelXlsx(tl(ZipList),  CountList ++ [4]);
+					"sharedStrings.xml" -> isExcelXlsx(tl(ZipList),  CountList ++ [5]);
+					"styles.xml" -> isExcelXlsx(tl(ZipList),  CountList ++ [6]);
+					"workbook.xml" -> isExcelXlsx(tl(ZipList),  CountList ++ [7]);
+					_Else -> isExcelXlsx(tl(ZipList),  CountList)
+				end;
+			true -> {false, tl(ZipList)}
+			end;
+		_Else ->
+			{XlList, Rest} = scanRest("xl", ZipList, [], []),
+			if length(XlList) > 0 ->
+				   isExcelXlsx(XlList ++ Rest,  CountList);
+			   true ->
+					X1 = lists:member(1, CountList),
+					X2 = lists:member(2, CountList),
+					X3 = lists:member(3, CountList),	
+					X4 = lists:member(4, CountList),
+					X5 = lists:member(5, CountList),
+					X6 = lists:member(6, CountList),
+					X7 = lists:member(7, CountList),
+					if X1 and X2 and X3 and X4 and X5 and X6 and X7 ->
+						   {true, ZipList};
+					   true -> {false, ZipList}
+					end
+			end
+	end.
+
+isPowerpointPptx(ZipList, CountList) ->
+	{_, Head, _, _, _, _} = hd(ZipList),
+	Folder = string:tokens(Head, "/"),
+	case hd(Folder) of
+		"ppt" -> 
+			if length(Folder) > 1 ->
+				case hd(tl(Folder)) of
+					"_rels" -> isPowerpointPptx(tl(ZipList), CountList ++ [1]);
+					"slideLayouts" -> isPowerpointPptx(tl(ZipList),  CountList ++ [2]);
+					"slideMasters" -> isPowerpointPptx(tl(ZipList),  CountList ++ [3]);
+					"slides" -> isPowerpointPptx(tl(ZipList), CountList ++ [4]);
+					"theme" -> isPowerpointPptx(tl(ZipList),  CountList ++ [5]);
+					"presentation.xml" -> isPowerpointPptx(tl(ZipList),  CountList ++ [6]);
+					"presProps.xml" -> isPowerpointPptx(tl(ZipList),  CountList ++ [7]);
+					"tableStyles.xml" -> isPowerpointPptx(tl(ZipList),  CountList ++ [8]);
+					"viewProps.xml" -> isPowerpointPptx(tl(ZipList),  CountList ++ [9]);
+					_Else -> isPowerpointPptx(tl(ZipList), CountList)
+				end;
+			   true -> {false, tl(ZipList)}
+			end;
+		_Else ->
+			{PptList, Rest} = scanRest("ppt", ZipList, [], []),
+			if length(PptList) > 0 ->
+				   isPowerpointPptx(PptList ++ Rest,  CountList);
+			   true ->
+					X1 = lists:member(1, CountList),
+					X2 = lists:member(2, CountList),
+					X3 = lists:member(3, CountList),
+					X4 = lists:member(4, CountList),
+					X5 = lists:member(5, CountList),
+					X6 = lists:member(6, CountList),
+					X7 = lists:member(7, CountList),
+					X8 = lists:member(8, CountList),
+					X9 = lists:member(9, CountList),
+					if X1 and X2 and X3 and X4 and X5 and X6 and X7 and X8 and X9 ->
+						   {true, ZipList};
+					   true -> {false, ZipList}
+					end
+			end
+	end.
+					
+scanRest(_, [], StringList, RestList) -> {StringList, RestList} ;
+scanRest(String, [Zip | Tail], StrList, RestList) ->
+	{_, Head, _, _, _, _} = Zip,
+	case hd(string:tokens(Head, "/")) of
+		String -> scanRest(String, Tail, StrList ++ [Zip], RestList);
+		_Else ->scanRest(String, Tail, StrList, RestList ++ [Zip])
+	end.
+
+tff(true, _, false) -> true;
+tff(true, false, _) -> true;
+tff(_, true, true) -> false;
+tff(false, _, _) -> false.
+
+%---------------------------------------------------------------------------------------------------------------
+% If the file type is "Microsoft Office Document", 
+% this function is called to determine the mime-type wheather it is Word, Excel or Powerpoint.
+%---------------------------------------------------------------------------------------------------------------
+officeType(FileData) ->
+	Text = binary_to_list(FileData),
+	case string:str(Text, "Microsoft Office Word") of
+		0 ->
+			case string:str(Text, "Microsoft Excel") of
+				0 ->
+					case string:str(Text, "Powerpoint") of 
+						0 -> case string:str(Text, "Crystal Reports") of
+								 0 -> <<"application/vnd.ms-office">>;
+								 _Else -> <<"application/x-rpt">>
+							 end;
+						_Else -> <<"application/vnd.ms-powerpoint">>
+					end;
+				_Else -> <<"application/vnd.ms-excel">>
+			end;
+		_Else -> <<"application/msword">>
+	end.
 
 
 %---------------------------------------------------------------------------------------------------------------
