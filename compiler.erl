@@ -24,7 +24,7 @@
 -import(magic_db, [getDB/0]).
 
 
--define(MAX_BYTES_TO_READ,1024*100).
+-define(MAX_BYTES_TO_READ,102400).
 -define(MAGICDB, "magic_db").
 -define(MAGDIR, "Magdir/").
 -define(TESTFOLDER, "TestFolder").
@@ -59,64 +59,25 @@ compileHelper(FileList, Accum) ->
 %---------------------------------------------------------------------------------------------------------------
 % That is the main function takes a filename as argument and starts to test for its mime type.
 %---------------------------------------------------------------------------------------------------------------
-getMimeType(FileName) ->
-	case dbDetect( file:open(FileName, [read, binary]) ) of
+getMimeType(FileName) when is_list(FileName) -> 
+	{ok, Data} = file:read_file(FileName),
+	getMimeType(Data);
+getMimeType(FileData) when is_binary(FileData) ->
+	case dbDetect( FileData ) of
 		<<"Unknown Type">> ->
-			textType(FileName);
+			textType(FileData);
 		<<"application/x-dosexec">> -> "application/octet-stream";
-		<<"application/zip">> -> detectDocx(FileName);
+		<<"application/zip">> -> detectDocx(FileData);
 		MimeType ->
 			print(MimeType) 
 	end.
 
 %Gets an opened file as argument and returns the compareMagicList() function
+dbDetect(<<>>) -> <<"Unknown Type">>;
 dbDetect({error, _}) -> <<"File does not exist.">>;
-dbDetect({ok,IoFile}) ->
-	case file:read(IoFile , ?MAX_BYTES_TO_READ) of
-		eof -> file:close(IoFile) , <<"Empty File">>;
-		{ok, FileData} -> 
-			file:close(IoFile),
-			MagicList = getDB(),
-			compareMagicList(FileData,MagicList, false)
-	end.
-
-
-%-----------------------------------------------------------------------------------------------------------------------------
-% compileAndGetType function takes the db files in Magdir and compile them at the runtime.
-% This function doesn't use magic_db module but it uses Magdir folder
-%-----------------------------------------------------------------------------------------------------------------------------
-compileAndGetType(FileName) -> compileAndGetTypeHelper(FileName, getFileNames()).
-
-%---------------------------------------------------------------------------------------------------------------
-% Gets a file name and a list of database files as argument and open the files for the arguments of detect()
-%---------------------------------------------------------------------------------------------------------------
-compileAndGetTypeHelper(FileName, []) -> textType(FileName);
-compileAndGetTypeHelper(FileName, FileList) ->
-	case detect ( file:open(FileName,[read,binary]), file:open(?MAGDIR ++hd(FileList),[read,binary])) of
-		<<"Unknown Type">> ->
-			compileAndGetTypeHelper(FileName, tl(FileList));
-		<<"application/x-dosexec">> -> "application/octet-stream";
-		<<"application/zip">> -> detectDocx(FileName);
-		MimeType ->
-			print(MimeType) 
-	end.
-
-% Test function that returns the result using only "test.db" as database
-compileGet(FileName) -> compileAndGetTypeHelper(FileName, ["../test.db"]).
-
-% Gets a file and a database file as arguments and returns the result of compareMagicList function
-detect({error,_},_) -> <<"File does not exist.">>;
-detect(_,{error,_}) -> <<"MagicFile does not exist.">>;
-detect({ok,IoFile},{ok,IoMagic}) -> 
-	case file:read(IoFile , ?MAX_BYTES_TO_READ) of
-		eof -> file:close(IoFile) , <<"Empty File">>;
-		{ok, FileData} -> 
-			file:close(IoFile),
-			ReverseMagicList  = parse_all_lines(IoMagic, [], -1),
-			MagicList = lists:reverse(ReverseMagicList),
-			compareMagicList(FileData,MagicList, false)
-	end.
-
+dbDetect(FileData) ->
+	MagicList = getDB(),
+	compareMagicList(FileData,MagicList, false).
 
 %-------------------------------------------------------------------------------------------------------------------------------------
 % Gets the file names in Magdir folder
@@ -299,7 +260,6 @@ parse_all_lines(Device, Accum, LastAdded) ->
 			end
 	end.
 
-
 %---------------------------------------------------------------------------------------------------------------
 % Example Line: >>3	string	ID3	FileType
 % The number of '>' char is the level of the line.
@@ -325,8 +285,6 @@ deleteSpace(<<>>, Accum) -> Accum;
 deleteSpace(<<$\s, T/binary>>, <<Accum/binary>>) -> deleteSpace(T, Accum);
 deleteSpace(<<Char, T/binary>>, <<Accum/binary>>) -> deleteSpace(T, <<Accum/binary, Char>>).
 
-
-
 %---------------------------------------------------------------------------------------------------------------
 % Returns the mime-type from the argument line. ex: parseMime(<<":mime audio/mpeg">>) -> <<"audio/mpeg">>
 %---------------------------------------------------------------------------------------------------------------
@@ -342,8 +300,8 @@ parseMime2(<<Char, T/binary>>, Mime) -> parseMime2(T, <<Mime/binary, Char>> ).
 % If the file mime-type is "application/zip",
 % this function is called to detect wheather the file is an office document.
 %---------------------------------------------------------------------------------------------------------------
-detectDocx(FileName) -> 
-	case zip:list_dir(FileName) of
+detectDocx(FileData) -> 
+	case zip:list_dir(FileData) of
 		{ok, ZipList} -> typeOfZip(tl(ZipList), []);
 		{error, _} -> "application/zip"
 	end.
@@ -548,8 +506,8 @@ officeType(FileData) ->
 %---------------------------------------------------------------------------------------------------------------
 % Counts the number of the words in names() and determine the text type. ex: text/x-c
 %---------------------------------------------------------------------------------------------------------------
-textType(FileName) ->
-	FileContext = readFile(FileName),
+textType(FileData) ->
+	<<FileContext:?MAX_BYTES_TO_READ/binary, _/binary>> = FileData,
 	case isAsciiText(FileContext, 0, length(FileContext)) of
 		false -> "application/octet-stream";
 		true ->
@@ -560,11 +518,6 @@ textType(FileName) ->
 			true -> textTypeResult(Type)
 			end
 	end.
-
-readFile(FileName) ->
-	{ok, File} = file:open(FileName,[read]),
-	{ok, FileContext} = file:read(File, ?MAX_BYTES_TO_READ),
-	FileContext.
 
 %---------------------------------------------------------------------------------------------------------------
 % Checks whether the text has ascii characters or not
@@ -804,16 +757,11 @@ textTypeResult(Type) ->
 		"po" -> "text/x-po"
 	end.
 
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % Prints result.
 %---------------------------------------------------------------------------------------------------------------
 print(<<$\s,T/binary>>) -> print(T);
 print(Result) -> binary_to_list(Result).
-
-
 
 %---------------------------------------------------------------------------------------------------------------
 % Checks whether a given digit is available for Decimal , Hexadecimal and Octal or not.
@@ -823,7 +771,6 @@ isOctDigit(Char) -> (Char >= $0) and (Char =< $7).
 isHexDigit(Char) -> (Char >= $0) and (Char =< $9) or
 						(Char >= $a) and (Char =< $f) or
 						(Char >= $A) and (Char =< $F).
-
 
 
 %---------------------------------------------------------------------------------------------------------------
@@ -839,7 +786,6 @@ isOct(<<>>) -> false;
 isOct(Var) -> << <<X>> || <<X>> <= Var , isOctDigit(X) >> == Var.
 
 
-
 %---------------------------------------------------------------------------------------------------------------
 % This functions takes binary type as argument and converts it into Decimal from Hexadecimal,Octal,Decimal.
 %---------------------------------------------------------------------------------------------------------------
@@ -852,10 +798,6 @@ oct2int(Hex) ->
 dec2int(Hex) ->
     erlang:list_to_integer((erlang:binary_to_list(Hex)), 10).
 
-
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % This function converts hex,oct or dec (e.g. 0xaef32 , 01242 , 3563) to decimal.
 %---------------------------------------------------------------------------------------------------------------
@@ -865,9 +807,6 @@ hdo2int(<<$0 , T/binary>> ) -> oct2int(T);
 hdo2int(T) -> dec2int(T).
 
 
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % This function converts binary to an integer.(e.g. <<35,46,34>> -> 2305570)
 %---------------------------------------------------------------------------------------------------------------
@@ -875,9 +814,6 @@ bin2int(Binary) ->
 		BitSize = bit_size(Binary),
 		<<Result:BitSize>> = Binary,
 		Result.
-
-
-
 
 
 %---------------------------------------------------------------------------------------------------------------
@@ -902,10 +838,6 @@ parse(Binary) ->
 		{Data ,isValidData(Type,Data) },
 		Result }).
 
-
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % getOffset reads Offset part from a magicline.
 %---------------------------------------------------------------------------------------------------------------
@@ -915,9 +847,6 @@ getOffset(<<$\s, T/binary>> ,Offset) -> {Offset,T};
 getOffset(<<$\t, T/binary>> ,Offset) -> {Offset,T};
 getOffset(<<Char,T/binary>> ,Offset) -> getOffset(T,<<Offset/binary,<<Char>>/binary>>).
 
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % Checks for validity of Offset
 %---------------------------------------------------------------------------------------------------------------
@@ -925,10 +854,6 @@ isValidOffset(<<>> ) -> false;
 isValidOffset(<<$> ,T/binary >> ) -> isValidOffset(T);
 isValidOffset(<<$0,$x,T/binary >> ) -> isHex(T);
 isValidOffset(T) -> isDec(T).
-
-
-
-
 
 
 %---------------------------------------------------------------------------------------------------------------
@@ -941,10 +866,6 @@ getType(<<$\n, T/binary>> ,Type) -> {Type,T};
 getType(<<$\s, T/binary>> ,Type) -> {Type,T};
 getType(<<$\t, T/binary>> ,Type) -> {Type,T};
 getType(<<Char,T/binary>>,Type) -> getType(T,<<Type/binary,Char>>).
-
-
-
-
 
 %---------------------------------------------------------------------------------------------------------------
 % Checks for validity of Type
@@ -985,9 +906,6 @@ isValidstr(<<"//" , _/binary>>) -> false;
 isValidstr(<<Char, T/binary>>) when Char==$b ; Char==$B ; Char==$c ; Char==$/ -> isValidstr(T);
 isValidstr(_) -> false.
 
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % Reads MagicData from a magicline.
 %---------------------------------------------------------------------------------------------------------------
@@ -999,8 +917,6 @@ getData(<<$\s, T/binary>> ,Data) -> {Data,T};
 getData(<<$\t, T/binary>> ,Data) -> {Data,T};
 getData(<<$\\,$\s,T/binary>>,Data) -> getData(T,<<Data/binary,<<$\s>>/binary>>);
 getData(<<Char,T/binary>> ,Data) -> getData(T,<<Data/binary,<<Char>>/binary>>).
-
-
 
 
 %---------------------------------------------------------------------------------------------------------------
@@ -1023,20 +939,12 @@ isValidData(<<"string",_/binary >>,_,true) -> true;
 isValidData(_,<<$0,$x,T/binary>>,true) -> isHex(T);
 isValidData(_,Data,true) -> isDec(Data).
 
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % Gets result part of Magicline.
 %---------------------------------------------------------------------------------------------------------------
 getResult(<<$\s , T/binary>>) -> getResult(T);
 getResult(<<$\t , T/binary>>) -> getResult(T);
 getResult(T) -> T.
-
-
-
-
-
 
 %---------------------------------------------------------------------------------------------------------------
 % Edits parsed line, it converts Offset,Type to integer and it fixes Data if it has speacial chars in it.(e.g.\021 octal ,\xa3 hex, \t,\a..)
@@ -1056,11 +964,6 @@ editResult(<<"\\b",T/binary>>) -> editResult(T);
 editResult(T) -> Size=size(T)-1, <<Result:Size/binary , Ch >> = T , editResult(Result, Ch).
 editResult(Result, $\n) -> Result;
 editResult(Result, Ch) -> <<Result/binary , Ch>>.
-
-
-
-
-
 
 
 %---------------------------------------------------------------------------------------------------------------
@@ -1125,8 +1028,6 @@ editData0(Type , <<"0" ,T/binary>>) -> <<(hdo2int(<<"0" ,T/binary>>)):(mybitsize
 editData0(Type , T ) -> <<(dec2int(T)):(mybitsize(Type))>>.
 
 
-
-
 %---------------------------------------------------------------------------------------------------------------
 % Conversions in hex should be like that, "\xpk" -> [$p,$k] , "\x10zs" -> [16,$z,$s] ,"\x103" -> [16,$3],
 % "\xrs" -> [$x,$r.$s](since there is no hex digit)
@@ -1141,11 +1042,6 @@ editData1(<<Fst,Snd,T/binary >> ) ->
 editData1(true, true , Digits , T ) -> << << (hex2int(Digits)) >> /binary , (editData0(<<"string">>,T))/binary >> ;
 editData1(true, false, <<Fst,Snd>>, T ) -> << << (hex2int(<<Fst>>)) >> /binary ,(editData0(<<"string">>,<<Snd,T/binary>>))/binary >> ;
 editData1(false ,_ , Digits , T ) -> << $x ,(editData0(<<"string">>,<<Digits/binary,T/binary>>))/binary >> .
-
-
-
-
-
 
  
 %---------------------------------------------------------------------------------------------------------------
@@ -1162,9 +1058,6 @@ editData2(<<Fst,Snd,Thrd,T/binary >>) -> editData2(isOctDigit(Snd),isOctDigit(Th
 editData2(true, true, Digits , T) -> << << (oct2int(Digits)) >> /binary , (editData0(<<"string">>,T))/binary >> ;
 editData2(true, false, <<Fst,Snd,Thrd>>, T) -> << << (oct2int(<<Fst,Snd>>)) >> /binary ,(editData0(<<"string">>,<< Thrd,T/binary>>))/binary >> ;
 editData2(false ,_, <<Fst,Snd,Thrd>>, T) -> << (Fst-$0) , (editData0(<<"string">>,<<Snd,Thrd,T/binary>>))/binary >> .
-
-
-
 
 %---------------------------------------------------------------------------------------------------------------
 % Some types takes additional parts like lelong&0xaf3d4523 or string/bC.In EditType functions we seperate them for convenience.
@@ -1191,12 +1084,6 @@ editType( <<"search", T/binary>> ) -> {search , T};
 editType( <<"regex", T/binary>>) -> {regex, T}.
 
 
-
-
-
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % This function returns the bit size of numeric types.
 %---------------------------------------------------------------------------------------------------------------
@@ -1210,11 +1097,6 @@ mybitsize(<<"ubelong" ,_/binary>>) -> 32;
 mybitsize(<<"belong" ,_/binary>>) -> 32 .
 
 
-
-
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % Compare function test file for all Magiclines entirely.When it succeeds the test ends.
 %---------------------------------------------------------------------------------------------------------------
@@ -1222,8 +1104,7 @@ mybitsize(<<"belong" ,_/binary>>) -> 32 .
 
 compare(X) -> X.
 
-compare(_,[]) -> 
-		<<"Unknown Type">>;
+compare(_,[]) -> <<"Unknown Type">>;
 
 compare(FileData,?MYPARSE) when Level == 0 -> 
 		compare(FileData , Tail , test(FileData,hd(?MYPARSE)));
@@ -1305,13 +1186,6 @@ and_xor_test(_ ,_ ) -> false.
 result(true , Result) -> {ok,Result};
 result(false, _ ) -> error.
 
-
-
-
-
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % This function gets exact Data from FileData placed in offset with appropriate length.
 %---------------------------------------------------------------------------------------------------------------
@@ -1323,11 +1197,6 @@ getTarget( Offset, {_ , AndValue , Endianness , Size}, _ , FileData) ->
 readNumerics({ok,Target} , novalue , _ ) -> {ok,Target};
 readNumerics({ok,Target} , AndValue , Size ) -> {ok,<<(AndValue band bin2int(Target)):Size/unit:8>>};
 readNumerics({error,Reason} , _ , _ ) -> {error,Reason}.
-
-
-
-
-
 
 %---------------------------------------------------------------------------------------------------------------
 % Reads Number of bytes from a binary starting Offset with appropriate Endianness.
@@ -1345,11 +1214,6 @@ readBin(Binary,Offset,Number,native ,true ) ->
 		<<_:Offset/binary , Target:Number/native-unit:8 , _/binary>> = Binary , {ok,<<Target:Number/unit:8>>};
 
 readBin(_ ,_ ,_ ,_ ,false) -> {error, "Binary does not have enough length to be read from Offset."}.
-
-
-
-
-
 
 
 %---------------------------------------------------------------------------------------------------------------
@@ -1370,13 +1234,6 @@ readString(Data, {ok,Target}, false ,true , true ) -> {ok,editFlag_c(editFlag_B(
 readString(_ , {error,Reason},_ ,_ ,_ ) -> {error,Reason}.
 
 
-
-
-
-
-
-
-
 %---------------------------------------------------------------------------------------------------------------
 % Edits read string according to rules of Flag 'b'
 %---------------------------------------------------------------------------------------------------------------
@@ -1384,9 +1241,6 @@ editFlag_b(_, <<>>) -> <<>>;
 editFlag_b(<<$\s, T/binary>>, <<$\s, T1/binary>>) -> <<$\s, (editFlag_b(removeBlanks(T), T1))/binary>>;
 editFlag_b(Target, <<$\s, T1/binary>>) -> <<$\s, (editFlag_b(Target, T1))/binary>>;
 editFlag_b(<<H , T/binary>>, <<_ , T1/binary>>) -> <<H , (editFlag_b(T, T1))/binary>>.
-
-
-
 
 
 %---------------------------------------------------------------------------------------------------------------
@@ -1399,8 +1253,6 @@ editFlag_c(<<H , T/binary >> , <<H1, T1/binary>> ) when H1 >= $a , H1 =< $z ,
                  <<(H bor H1) , (editFlag_c(T,T1))/binary>>;
 editFlag_c(<<H , T/binary >> , <<_ , T1/binary>> ) -> <<H, (editFlag_c(T,T1))/binary>>.
 
-
-
 %---------------------------------------------------------------------------------------------------------------
 % Edits read string according to rules of Flag 'B' .
 %---------------------------------------------------------------------------------------------------------------
@@ -1409,14 +1261,11 @@ editFlag_B(<<>>, _) -> <<>>;
 editFlag_B(<<$\s, T/binary>>, <<$\s, T1/binary>>) -> <<$\s , (editFlag_B(removeBlanks(T), T1))/binary>>;
 editFlag_B(<<H , T/binary>>, <<_ , T1/binary>>) -> <<H, (editFlag_B(T, T1))/binary >>.
 
-
 %---------------------------------------------------------------------------------------------------------------
 % Removes initial blanks.
 %---------------------------------------------------------------------------------------------------------------
 removeBlanks(<<$\s, T/binary>>) -> removeBlanks(T);
 removeBlanks(Target) -> Target.
-
-
 
 %---------------------------------------------------------------------------------------------------------------
 % Test Begins
