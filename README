@@ -16,3 +16,72 @@ Ex: module returns text/x-c++ and libmagic returns test/x-c or text/plain.
 "indirect" type case is unhandled. ex: mp3 files' mime-type is determined by this indirect type
 'audio' file in Magdir : ">(6.I)  indirect	x	\b, contains:"
 ---------------------------------------------------------------------------------------------------------------
+
+
+Fonksiyonların Genel Açıklaması
+---------------------------------------------------------------------------------------------------------------
+--- getMimeType() Kısmı ---
+
+getMimeType(FileName) fonksiyonu dosyayı binary okuduktan sonra daha önceden compile edilmiş magic_db modülü içerisindeki veritabanı bilgileriyle karşılaştırıyor. magic_db'nin içerisinde aşağıda anlatılan tree yapısındaki verilerin listesi bulunuyor.
+
+Bu kısımda çağırılan en önemli fonksiyonlardan birisi compareTree fonksiyonu. Bu fonksiyonda aşağıda anlatılan bir tree verisinin dosya verisiyle karşılaştırması yapılıyor. Bu karşılaştırmayı yapan fonksiyon ise compare() fonksiyonu. compareTree ve compare fonksiyonları arasındaki fark ise: compileTree'ye verilen bir treenin öncelikle HeadNode'u compare fonksiyonuna gönderiliyor. Yani HeadNode'un verileri ile dosyanın verilerini karşılaştıran asıl fonksiyon compare fonksiyonu. Fakat bu verilerin sonucuna göre ne yapılacağına karar veren compareTree fonksiyon.
+
+compareTree fonksiyonunun işleyiş şekli ise şu şekilde:
+İlk olarak HeadNode'un type'ına göre compare fonksiyonunun argümanlarını oluşturarak bu fonksiyonu çağırıyor.
+Aşağıdaki örnekte, tree'nin HeadNode'undaki veriyi 
+{{0,0},{string,[]},{61,<<"<aranan_string">>},<<"dosya_türü">>}
+ve mime-type'ı araştırılan dosyanın verisini compare fonksiyonuna gönderiyor. Eğer yukarıdaki verideki {string, []} kısmı {search, []} veya {regex, []} ise bunları da istenen türe çevirerek yine compare fonksiyonuna aktarıyor.
+compare ise dosya verisi ve tree'nin HeadNode verisini karşılaştırdıktan sonra <<"Unknown Type">> veya <<"dosya_türü">> sonuçlarından birini dönüyor. Yani aranan_string dosyada {0,0} offset'inde bulunamazsa "Unknown Type", bulunduysa "dosya_türü"...
+
+compareTree'ye dönülen bu sonuçlar incelenerek farklı yollar izleniyor. Eğer "dosya_türü" stringi "Microsoft Office Document" ise okunulan dosyanın verisi ile officeType() fonksiyonu çağırılıyor. Böylece hangi türden office dosyası olduğuna göre mime-type belirleniyor. Eğer "dosya_türü" başka bir string ise bu kez HeadNode'un mime-type'ı olup olmadığına bakılıyor. Yani tree verisinde:
+{NodeInfo, [child nodes], [mime_type]} 
+mime_type listesi boş mu diye bakılıyor ve doluysa listenin içeriği dönülüyor. mime_type listesi boşsa compareMagicList fonksiyonuna mevcut node'un çocukları yani [child nodes] listesi gönderiliyor. Bu şekilde compare fonksiyonundan sonuç dönen ve içinde mime_type'ı olan bir node bulunana kadar tüm çocuk node'lar ve (eğer compare'dan sonuç döndüyse) onların da çocukları karşılaştırılıyor. Bu durumda iki farklı sonuç oluşabiliyor.
+
+1- HeadNode'un çocuk node'larını tek tek araştırırken node'lardan birisi hem compare'dan sonuç döner  (yani bir "dosya_türü" döner) hem de [mime_type] listesi boş değildir. Bu durumda fonksiyon sonlanır ve mime_type dönülür.
+
+2- HeadNode'un hiçbir çocuğu compare'dan sonuç dönmez veya dönenlerin de [mime_type] listesi boştur. Bu durumda compareTree'yi çağıran compareMagicList fonksiyonuna <<"empty">> sonucu dönülür. Bu, "compare fonksiyonu sonuç döndü fakat hiçbir mime_type bulunamadı." anlamına geliyor. compareMagicList ise bu sonucu görünce eğer magic_db içerisindeki veritabanı bilgilerinde incelenmeyen bir tree varsa onu compareTree'ye göndererek aynı işlemi tekrarlar veya veritabanı bilgilerinin hepsi bittiyse kendini çağıran dbDetect() fonksiyonuna <<"Unknown Type">> sonucunu döner.
+
+
+En son getMimeType fonksiyonuna dönülen sonuç <<"Unknown Type">> ise bunun bir text dosyası olup olmadığını test etmek için textType() fonksiyonu çağırılıyor. textType fonksiyonunun işleyişini aşağıda anlattım.
+getMimeType fonksiyonuna gelen sonuç <<"application/zip">> ise de bu dosyanın docx, xlsx veya pptx uzantılı bir office dosyası olup olmadığını anlamak için detectDocx() fonksiyonu çağırılıyor.
+
+----------------------------------------------------------------
+--- compile() Kısmı ---
+
+Modülün düzgün çalışabilmesi için öncelikle compile() fonksiyonunun çağırılması gerekiyor. Bu fonksiyon Magdir klasörünün içerisindeki Magic Number veritabanı dosyalarını modülün yorumlayabileceği şekilde bir dosyaya kaydedip modül oluşturuyor ve bu yeni modüldeki getDB() fonksiyonu ile tüm veritabanı sonucunu dönüyor.
+
+compile() fonksiyonunun çağırdığı en önemli fonksiyon parse_all_lines() fonksiyonu. Buraya Magdir klasörünün içindeki herhangi dosyanın verisi gönderiliyor ve satır satır incelenerek oluşturulacak magic_db veritabanı modülüne uygun hale getiriliyor. Yani tree yapısına çevirilerek listeleniyor.
+Örneğin:
+0  string		aranan_string		dosya_türü1
+!:mime "mime/type1"
+>1	string		aranan_string2		dosya_türü2
+!:mime "mime/type2"
+
+içeriği olan bir Magdir dosyasını compiler modülünün içerisinde tanımlanan tree yapısına dönüştürülüyor.
+Yukarıdaki Magdir dosyası örneğinin anlamı '0' ile başlayan satır doğruysa sonuç "mime/type" dönülecek ama eğer ">1" ile başlayan satır da doğruysa "mime/type2" dönülecek. Yalnız ">1" ile başlayan satır yukarıdaki satır doğru değilse kontrol edilmeyecek. Bunu kolaylaştırmak için modül, tree yapısına HeadNode olarak "0" ile başlayan satırı onun ChildNode'ları olarak da aşağıdaki ">1" vb satırları ekliyor.
+
+Modülde kullanılan tree yapısı:
+{NodeInfo, [Child Nodes List], [mime-type of this node]}
+
+Yukarıdaki örnek veritabanı dosyası için oluşturulan tree
+{{{0,0},{string,[]},{61,<<"<aranan_string">>},<<"dosya_türü">>},
+[{{{0,0},{string,[]},{61,<<"<aranan_string2">>},<<"dosya_türü2">>},[], [<<"mime/type2">>]}],
+[<<"mime/type1">>]}
+
+Bu şekilde tüm dosyalar incelenerek oluşturulan farklı treeler listeleniyor ve magic_db modülüne yazılıyor.
+
+--------------------------------------------------------------------------------
+--- textType() Kısmı ---
+
+textType fonksiyonu hiçbir mime-type sonucu dönmeyen dosyalar için çağırılıyor. Öncelikle dosyanın tüm karakterlerinin 2/3'ü ascii tablosunda 31 < Char < 127 aralığında olup olmadığına bakılıyor. Eğer 2/3'ü bu aralıkta değilse "application/octet-stream" sonucu dönülüyor. Dosya karakterlerinin 2/3'ü istenilen aralıktaysa ise bunun bir text dosyası olduğuna karar verilip text dosyasının türü araştırılıyor.
+
+text dosyasının türü ise names() fonksiyonundaki kelimelerin dosya içinde bulunma sıklığına göre belirleniyor.
+
+--------------------------------------------------------------------------------
+--- detectDocx() Kısmı ---
+
+Bu bölümde zip dosyasının içieriği docx, pptx, xlsx dosyalarının genel içeriğiyle karşılaştırılıyor. Ona göre de word, exel, powerpoint mime-type'ları veya içerik uyuşmuyorsa da application/zip mime-type'ı dönülüyor.
+
+Zip dosyası genel olarak tüm docx, pptx ve xlsx dosyalarında bulunan [Content_Types].xml, "_rels" klasörü ve "docProps" klasörlerini ve bunlara ek olarak "word", "xl" veya "ppt" klasörlerinden birini içeriyorsa alt fonksiyonlara da gönderip klasörlerinin içerikleri kontrol ediliyor. Örneğin bir zip dosyası [Content_Types].xml, dosyasını ve _rels, docProps, word klasörlerini içeriyorsa word klasörünün içeriğinin uyumlu olup olmadığına bakmak için isWordDocx() fonksiyonu çağırılıyor. Burada da word klasörünün içeriği incelenip "styles.xml, document.xml ve fontTable.xml dosyaları bulunuyorsa application/msword mime-type'ı dönülüyor. 
+
+Aynı şekilde "xl" klasörü varsa isExcelXlsx(), "ppt" klasörü varsa isPowerpointPptx() fonksiyonları çağırılıyor.
